@@ -20,6 +20,8 @@ Timezone myTZ;
 // ---------- JSON ----------
 DynamicJsonDocument priceDoc(20000);
 
+float currentTemp = -1000; // default “invalid”
+
 // ---------- FUNCTIONS ----------
 
 void connectWiFi() {
@@ -45,7 +47,7 @@ void fetchPrices() {
 
   Serial.println("Fetching prices...");
 
-  if (https.begin(client, API_URL)) {
+  if (https.begin(client, PRICE_API_URL)) {
 
     int httpCode = https.GET();
 
@@ -69,6 +71,31 @@ void fetchPrices() {
       Serial.println("HTTP request failed");
     }
 
+    https.end();
+  }
+}
+
+void fetchTemperature() {
+  WiFiClientSecure client;
+  client.setInsecure();
+
+  HTTPClient https;
+
+  if (https.begin(client, TEMP_API_URL)) {
+    int httpCode = https.GET();
+    if (httpCode > 0) {
+      String payload = https.getString();
+      DynamicJsonDocument doc(1024);
+      DeserializationError error = deserializeJson(doc, payload);
+      if (!error) {
+        currentTemp = doc["current_weather"]["temperature"].as<float>();
+        Serial.print("Current temp: "); Serial.println(currentTemp);
+      } else {
+        Serial.println("Temp JSON parse failed");
+      }
+    } else {
+      Serial.println("Temp HTTP request failed");
+    }
     https.end();
   }
 }
@@ -102,32 +129,51 @@ float getCurrentPrice() {
 
 void displayCurrentPrice() {
   float price = getCurrentPrice();
-  int hour = myTZ.hour(); // local hour for display
 
   tft.fillScreen(ST77XX_BLACK);
 
-  // --- Hour display ---
-  tft.setCursor(0, 10);
+  // --- Time display ---
+  tft.setCursor(5, 5);
   tft.setTextSize(2);
   tft.setTextColor(ST77XX_WHITE);
   tft.print(myTZ.dateTime("H:i"));
+
+    // --- Temperature display ---
+  tft.setCursor(100, 5);       // adjust X/Y to top-right
+  tft.setTextSize(2);
+  tft.setTextColor(ST77XX_CYAN);
+    if (currentTemp > -100) {
+      tft.print(currentTemp, 1);
+      tft.print(" C");
+    } else {
+      tft.print("--C");
+  }
 
   // --- Price display ---
   tft.setCursor(0, 40);
   tft.setTextSize(3);
 
   if (price >= 0.0) {
-    tft.setTextColor(ST77XX_GREEN);
-    tft.print(price, 2);  // show 2 decimals
+    // --- Color switch based on price ---
+    if (price < 5.0) {
+      tft.setTextColor(ST77XX_GREEN);
+    } else if (price < 15.0) {
+      tft.setTextColor(ST77XX_YELLOW);
+    } else {
+      tft.setTextColor(ST77XX_RED);
+    }
+
+    tft.print(price, 2);  // big number
     tft.setTextSize(2);
-    tft.println(" c/kWh");
+    tft.setTextColor(ST77XX_WHITE);
+    tft.print(" c/kWh");  // smaller unit
+
   } else {
     tft.setTextColor(ST77XX_RED);
     tft.println("No data");
   }
 
   // --- Serial log ---
-  Serial.print("Device hour: "); Serial.println(hour);
   Serial.print("Device time: "); Serial.println(myTZ.dateTime());
   Serial.print("Current price: "); Serial.println(price);
 }
@@ -166,5 +212,13 @@ void loop() {
 
   if (myTZ.hour() == 14 && myTZ.minute() == 0) {
     fetchPrices();
+  }
+
+  static int lastTempHour = -1;
+  int hour = myTZ.hour();
+
+    if (hour != lastTempHour) {
+      fetchTemperature();
+      lastTempHour = hour;
   }
 }
