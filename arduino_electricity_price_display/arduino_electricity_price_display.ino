@@ -3,17 +3,16 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <ezTime.h>
-#include <LiquidCrystal_I2C.h>
+#include <SPI.h> 
+#include <Adafruit_GFX.h> 
+#include <Adafruit_ST7735.h>
+#include "secrets.h"
 
-// ---------- WIFI ----------
-const char* ssid = "";
-const char* password = "";
-
-// ---------- API ----------
-const char* apiUrl = "https://api.porssisahko.net/v2/latest-prices.json";
-
-// ---------- LCD ----------
-LiquidCrystal_I2C lcd(0x27, 16, 2);
+// ---------- OLED ----------
+#define TFT_CS     5
+#define TFT_DC     16
+#define TFT_RST    4
+Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 
 // ---------- TIME ----------
 Timezone myTZ;
@@ -26,7 +25,7 @@ float prices[24];
 void connectWiFi() {
   Serial.print("Connecting to WiFi");
 
-  WiFi.begin(ssid, password);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
@@ -37,7 +36,6 @@ void connectWiFi() {
 }
 
 void fetchPrices() {
-
   WiFiClientSecure client;
   client.setInsecure();  // skip certificate validation (fine for school project)
 
@@ -45,9 +43,11 @@ void fetchPrices() {
 
   Serial.println("Fetching prices...");
 
-  if (https.begin(client, apiUrl)) {
-
+  if (https.begin(client, API_KEY)) {
     int httpCode = https.GET();
+
+    Serial.print("HTTP response code: ");
+    Serial.println(httpCode);  // <-- helpful for debugging
 
     if (httpCode > 0) {
       String payload = https.getString();
@@ -64,7 +64,6 @@ void fetchPrices() {
 }
 
 void parsePrices(String payload) {
-
   DynamicJsonDocument doc(20000);
   DeserializationError error = deserializeJson(doc, payload);
 
@@ -83,20 +82,25 @@ void parsePrices(String payload) {
 }
 
 void displayCurrentPrice() {
-
   int currentHour = myTZ.hour();
   float currentPrice = prices[currentHour];
 
-  lcd.clear();
+  // ---------- OLED DISPLAY ----------
+  tft.fillScreen(ST77XX_BLACK);  // clear screen
 
-  lcd.setCursor(0, 0);
-  lcd.print("Hour: ");
-  lcd.print(currentHour);
+  tft.setCursor(0, 10);
+  tft.setTextColor(ST77XX_WHITE);
+  tft.setTextSize(2);
+  tft.print("Hour: ");
+  tft.print(currentHour);
 
-  lcd.setCursor(0, 1);
-  lcd.print(currentPrice);
-  lcd.print(" c/kWh");
+  tft.setCursor(0, 40);
+  tft.setTextColor(ST77XX_GREEN);
+  tft.setTextSize(3);
+  tft.print(currentPrice, 2);  // two decimals
+  tft.print(" c/kWh");
 
+  // ---------- SERIAL ----------
   Serial.print("Hour ");
   Serial.print(currentHour);
   Serial.print(": ");
@@ -106,12 +110,11 @@ void displayCurrentPrice() {
 // ---------- SETUP ----------
 
 void setup() {
-
   Serial.begin(115200);
   delay(1000);
 
-  lcd.init();
-  lcd.backlight();
+  tft.initR(INITR_BLACKTAB); // initialize the display
+  tft.fillScreen(ST77XX_BLACK);
 
   connectWiFi();
 
@@ -119,17 +122,16 @@ void setup() {
   myTZ.setLocation("Europe/Helsinki");
 
   fetchPrices();
-
   displayCurrentPrice();
 }
 
 // ---------- LOOP ----------
 
 void loop() {
-
   static unsigned long lastUpdate = 0;
 
   if (millis() - lastUpdate > 60000) {   // update every 60 sec
+    fetchPrices();        // <-- fetch fresh prices each minute
     displayCurrentPrice();
     lastUpdate = millis();
   }
