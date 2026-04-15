@@ -139,7 +139,7 @@ void displayCurrentPrice() {
   tft.print(myTZ.dateTime("H:i"));
 
     // --- Temperature display ---
-  tft.setCursor(100, 5);       // adjust X/Y to top-right
+  tft.setCursor(95, 5);       // adjust X/Y to top-right
   tft.setTextSize(2);
   tft.setTextColor(ST77XX_CYAN);
     if (currentTemp > -100) {
@@ -150,7 +150,7 @@ void displayCurrentPrice() {
   }
 
   // --- Price display ---
-  tft.setCursor(0, 40);
+  tft.setCursor(10, 53);
   tft.setTextSize(3);
 
   if (price >= 0.0) {
