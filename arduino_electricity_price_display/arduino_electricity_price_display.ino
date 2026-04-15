@@ -6,13 +6,20 @@
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7735.h>
+#include "driver/i2s.h"
 #include "secrets.h"
+#include <math.h>
 
 // ---------- DISPLAY ----------
 #define TFT_CS 5
 #define TFT_DC 16
 #define TFT_RST 4
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
+
+// ---------- AUDIO ----------
+#define I2S_BCLK 26
+#define I2S_LRC  25
+#define I2S_DOUT 22
 
 // ---------- TIME ----------
 Timezone myTZ;
@@ -139,7 +146,7 @@ void displayCurrentPrice() {
   tft.print(myTZ.dateTime("H:i"));
 
     // --- Temperature display ---
-  tft.setCursor(95, 5);       // adjust X/Y to top-right
+  tft.setCursor(85, 5);       // adjust X/Y to top-right
   tft.setTextSize(2);
   tft.setTextColor(ST77XX_CYAN);
     if (currentTemp > -100) {
@@ -166,7 +173,7 @@ void displayCurrentPrice() {
     tft.print(price, 2);  // big number
     tft.setTextSize(2);
     tft.setTextColor(ST77XX_WHITE);
-    tft.print(" c/kWh");  // smaller unit
+    tft.print("c/kWh");  // smaller unit
 
   } else {
     tft.setTextColor(ST77XX_RED);
@@ -178,10 +185,70 @@ void displayCurrentPrice() {
   Serial.print("Current price: "); Serial.println(price);
 }
 
+void stopAudio() {
+  i2s_zero_dma_buffer(I2S_NUM_0);
+}
+
+void setupI2S() {
+  i2s_config_t config = {
+    .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
+    .sample_rate = 44100,
+    .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
+    .channel_format = I2S_CHANNEL_FMT_ONLY_RIGHT,
+    .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+    .intr_alloc_flags = 0,
+    .dma_buf_count = 8,
+    .dma_buf_len = 64,
+    .use_apll = false
+  };
+
+  i2s_pin_config_t pin_config = {
+    .bck_io_num = I2S_BCLK,
+    .ws_io_num = I2S_LRC,
+    .data_out_num = I2S_DOUT,
+    .data_in_num = I2S_PIN_NO_CHANGE
+  };
+
+  i2s_driver_install(I2S_NUM_0, &config, 0, NULL);
+  i2s_set_pin(I2S_NUM_0, &pin_config);
+}
+
+void playTone(int freq, int durationMs) {
+  const int sampleRate = 44100;
+  const int totalSamples = sampleRate * durationMs / 1000;
+
+  int16_t buffer[512];
+
+  int bufferIndex = 0;
+
+  for (int i = 0; i < totalSamples; i++) {
+    buffer[bufferIndex++] = 8000 * sin(2 * PI * freq * i / sampleRate);
+
+    if (bufferIndex == 512) {
+      size_t bytesWritten;
+      i2s_write(I2S_NUM_0, buffer, sizeof(buffer), &bytesWritten, portMAX_DELAY);
+      bufferIndex = 0;
+    }
+  }
+
+  // 🔥 flush remaining samples (THIS is what you're missing)
+  if (bufferIndex > 0) {
+    size_t bytesWritten;
+    i2s_write(I2S_NUM_0, buffer, bufferIndex * sizeof(int16_t), &bytesWritten, portMAX_DELAY);
+  }
+
+  // optional: tiny silence gap so it doesn’t smear into next sound
+  int16_t silence[256] = {0};
+  size_t bw;
+  i2s_write(I2S_NUM_0, silence, sizeof(silence), &bw, portMAX_DELAY);
+}
+
 // ---------- SETUP ----------
 
 void setup() {
   Serial.begin(115200);
+
+  delay(300);
 
   tft.initR(INITR_BLACKTAB);
   tft.setRotation(1);
@@ -189,11 +256,24 @@ void setup() {
 
   connectWiFi();
 
+  setupI2S();
+
+  stopAudio();
+  delay(100);
+
+  playTone(1000, 200);
+  stopAudio();
+  delay(50);
+
+  playTone(1500, 200);
+  stopAudio();
+
   waitForSync();
   myTZ.setLocation("Europe/Helsinki");
 
   fetchPrices();           // get the latest prices from API
   displayCurrentPrice();   // show them on the OLED right away
+
 }
 
 // ---------- LOOP ----------
