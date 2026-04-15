@@ -3,26 +3,27 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <ezTime.h>
-#include <SPI.h> 
-#include <Adafruit_GFX.h> 
+#include <SPI.h>
+#include <Adafruit_GFX.h>
 #include <Adafruit_ST7735.h>
 #include "secrets.h"
 
-// ---------- OLED ----------
-#define TFT_CS     5
-#define TFT_DC     16
-#define TFT_RST    4
+// ---------- DISPLAY ----------
+#define TFT_CS 5
+#define TFT_DC 16
+#define TFT_RST 4
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 
 // ---------- TIME ----------
 Timezone myTZ;
 
-// ---------- DATA ----------
-float prices[24];
+// ---------- JSON ----------
+DynamicJsonDocument priceDoc(20000);
 
 // ---------- FUNCTIONS ----------
 
 void connectWiFi() {
+
   Serial.print("Connecting to WiFi");
 
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -36,84 +37,108 @@ void connectWiFi() {
 }
 
 void fetchPrices() {
+
   WiFiClientSecure client;
-  client.setInsecure();  // skip certificate validation (fine for school project)
+  client.setInsecure();
 
   HTTPClient https;
 
   Serial.println("Fetching prices...");
 
-  if (https.begin(client, API_KEY)) {
+  if (https.begin(client, API_URL)) {
+
     int httpCode = https.GET();
 
-    Serial.print("HTTP response code: ");
-    Serial.println(httpCode);  // <-- helpful for debugging
+    Serial.print("HTTP response: ");
+    Serial.println(httpCode);
 
     if (httpCode > 0) {
+
       String payload = https.getString();
-      Serial.println("Received data");
-      parsePrices(payload);
+
+      DeserializationError error = deserializeJson(priceDoc, payload);
+
+      if (error) {
+        Serial.println("JSON parse failed");
+        return;
+      }
+
+      Serial.println("Prices updated");
+
     } else {
       Serial.println("HTTP request failed");
     }
 
     https.end();
-  } else {
-    Serial.println("Connection failed");
   }
 }
 
-void parsePrices(String payload) {
-  DynamicJsonDocument doc(20000);
-  DeserializationError error = deserializeJson(doc, payload);
+float getCurrentPrice() {
+  if (!priceDoc.containsKey("prices")) return -1.0;
 
-  if (error) {
-    Serial.println("JSON parse failed");
-    return;
+  JsonArray prices = priceDoc["prices"].as<JsonArray>();
+
+  // get current UTC time as epoch
+  time_t nowUtc = now(); // ezTime gives UTC epoch
+
+  for (JsonObject priceEntry : prices) {
+    const char* startStr = priceEntry["startDate"];
+    const char* endStr   = priceEntry["endDate"];
+
+    struct tm tmStart, tmEnd;
+    strptime(startStr, "%Y-%m-%dT%H:%M:%S", &tmStart);
+    strptime(endStr,   "%Y-%m-%dT%H:%M:%S", &tmEnd);
+
+    time_t startEpoch = mktime(&tmStart);
+    time_t endEpoch   = mktime(&tmEnd);
+
+    if (nowUtc >= startEpoch && nowUtc < endEpoch) {
+      return priceEntry["price"].as<float>();
+    }
   }
 
-  JsonArray arr = doc["prices"];  // adjust if your JSON structure differs
-
-  for (int i = 0; i < 24; i++) {
-    prices[i] = arr[i]["price"];
-  }
-
-  Serial.println("Prices stored.");
+  return -1.0; // no matching price
 }
 
 void displayCurrentPrice() {
-  int currentHour = myTZ.hour();
-  float currentPrice = prices[currentHour];
+  float price = getCurrentPrice();
+  int hour = myTZ.hour(); // local hour for display
 
-  // ---------- OLED DISPLAY ----------
-  tft.fillScreen(ST77XX_BLACK);  // clear screen
+  tft.fillScreen(ST77XX_BLACK);
 
+  // --- Hour display ---
   tft.setCursor(0, 10);
-  tft.setTextColor(ST77XX_WHITE);
   tft.setTextSize(2);
-  tft.print("Hour: ");
-  tft.print(currentHour);
+  tft.setTextColor(ST77XX_WHITE);
+  tft.print(myTZ.dateTime("H:i"));
 
+  // --- Price display ---
   tft.setCursor(0, 40);
-  tft.setTextColor(ST77XX_GREEN);
   tft.setTextSize(3);
-  tft.print(currentPrice, 2);  // two decimals
-  tft.print(" c/kWh");
 
-  // ---------- SERIAL ----------
-  Serial.print("Hour ");
-  Serial.print(currentHour);
-  Serial.print(": ");
-  Serial.println(currentPrice);
+  if (price >= 0.0) {
+    tft.setTextColor(ST77XX_GREEN);
+    tft.print(price, 2);  // show 2 decimals
+    tft.setTextSize(2);
+    tft.println(" c/kWh");
+  } else {
+    tft.setTextColor(ST77XX_RED);
+    tft.println("No data");
+  }
+
+  // --- Serial log ---
+  Serial.print("Device hour: "); Serial.println(hour);
+  Serial.print("Device time: "); Serial.println(myTZ.dateTime());
+  Serial.print("Current price: "); Serial.println(price);
 }
 
 // ---------- SETUP ----------
 
 void setup() {
   Serial.begin(115200);
-  delay(1000);
 
-  tft.initR(INITR_BLACKTAB); // initialize the display
+  tft.initR(INITR_BLACKTAB);
+  tft.setRotation(1);
   tft.fillScreen(ST77XX_BLACK);
 
   connectWiFi();
@@ -121,18 +146,25 @@ void setup() {
   waitForSync();
   myTZ.setLocation("Europe/Helsinki");
 
-  fetchPrices();
-  displayCurrentPrice();
+  fetchPrices();           // get the latest prices from API
+  displayCurrentPrice();   // show them on the OLED right away
 }
 
 // ---------- LOOP ----------
 
 void loop() {
-  static unsigned long lastUpdate = 0;
 
-  if (millis() - lastUpdate > 60000) {   // update every 60 sec
-    fetchPrices();        // <-- fetch fresh prices each minute
+  static unsigned long lastDisplayUpdate = 0;
+  static unsigned long lastFetch = 0;
+
+  if (millis() - lastDisplayUpdate > 60000) {
+
     displayCurrentPrice();
-    lastUpdate = millis();
+    lastDisplayUpdate = millis();
+
+  }
+
+  if (myTZ.hour() == 14 && myTZ.minute() == 0) {
+    fetchPrices();
   }
 }
