@@ -39,7 +39,7 @@ void connectWiFi() {
 void fetchPrices() {
 
   WiFiClientSecure client;
-  client.setInsecure();  // skip certificate validation
+  client.setInsecure();  // skip certificate validation (fine for school project)
 
   HTTPClient https;
 
@@ -73,7 +73,7 @@ void parsePrices(String payload) {
     return;
   }
 
-  JsonArray arr = doc["prices"];
+  JsonArray arr = doc["prices"];  // adjust if your JSON structure differs
 
   for (int i = 0; i < 24; i++) {
     prices[i] = arr[i]["price"];
