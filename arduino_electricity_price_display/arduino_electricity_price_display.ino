@@ -21,20 +21,23 @@ Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 #define I2S_LRC  25
 #define I2S_DOUT 22
 
+int lastPriceZone = -1;   // FIXED (was float)
+
 // ---------- TIME ----------
 Timezone myTZ;
 
 // ---------- JSON ----------
 DynamicJsonDocument priceDoc(20000);
 
-float currentTemp = -1000; // default “invalid”
+float currentTemp = -1000;
+
+// ---------- FORWARD DECLARATIONS ----------
+void playPriceSound(float price);
 
 // ---------- FUNCTIONS ----------
 
 void connectWiFi() {
-
   Serial.print("Connecting to WiFi");
-
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   while (WiFi.status() != WL_CONNECTED) {
@@ -46,7 +49,6 @@ void connectWiFi() {
 }
 
 void fetchPrices() {
-
   WiFiClientSecure client;
   client.setInsecure();
 
@@ -55,16 +57,13 @@ void fetchPrices() {
   Serial.println("Fetching prices...");
 
   if (https.begin(client, PRICE_API_URL)) {
-
     int httpCode = https.GET();
 
     Serial.print("HTTP response: ");
     Serial.println(httpCode);
 
     if (httpCode > 0) {
-
       String payload = https.getString();
-
       DeserializationError error = deserializeJson(priceDoc, payload);
 
       if (error) {
@@ -73,7 +72,6 @@ void fetchPrices() {
       }
 
       Serial.println("Prices updated");
-
     } else {
       Serial.println("HTTP request failed");
     }
@@ -90,30 +88,44 @@ void fetchTemperature() {
 
   if (https.begin(client, TEMP_API_URL)) {
     int httpCode = https.GET();
+
     if (httpCode > 0) {
       String payload = https.getString();
       DynamicJsonDocument doc(1024);
+
       DeserializationError error = deserializeJson(doc, payload);
       if (!error) {
         currentTemp = doc["current_weather"]["temperature"].as<float>();
-        Serial.print("Current temp: "); Serial.println(currentTemp);
-      } else {
-        Serial.println("Temp JSON parse failed");
       }
-    } else {
-      Serial.println("Temp HTTP request failed");
     }
+
     https.end();
   }
 }
 
-float getCurrentPrice() {
+//test mode, turn off for accurate results
+#define TEST_MODE 1
+
+ float getCurrentPrice() {
+
+  #if TEST_MODE
+  static int testState = 0;
+
+  float price;
+
+  if (testState == 0) price = 3.0;
+  else if (testState == 1) price = 10.0;
+  else price = 20.0;
+
+  testState = (testState + 1) % 3;
+
+  return price;
+#endif
+  
   if (!priceDoc.containsKey("prices")) return -1.0;
 
   JsonArray prices = priceDoc["prices"].as<JsonArray>();
-
-  // get current UTC time as epoch
-  time_t nowUtc = now(); // ezTime gives UTC epoch
+  time_t nowUtc = now();
 
   for (JsonObject priceEntry : prices) {
     const char* startStr = priceEntry["startDate"];
@@ -131,63 +143,97 @@ float getCurrentPrice() {
     }
   }
 
-  return -1.0; // no matching price
+  return -1.0;
 }
 
 void displayCurrentPrice() {
   float price = getCurrentPrice();
 
+  int zone;
+  if (price < 5.0) zone = 0;
+  else if (price < 15.0) zone = 1;
+  else zone = 2;
+
+  // ONLY trigger sound on change
+  if (zone != lastPriceZone && price >= 0) {
+    playPriceSound(price);
+    lastPriceZone = zone;
+  }
+
   tft.fillScreen(ST77XX_BLACK);
 
-  // --- Time display ---
+  // Time
   tft.setCursor(5, 5);
   tft.setTextSize(2);
   tft.setTextColor(ST77XX_WHITE);
   tft.print(myTZ.dateTime("H:i"));
 
-    // --- Temperature display ---
-  tft.setCursor(85, 5);       // adjust X/Y to top-right
+  // Temperature
+  tft.setCursor(85, 5);
   tft.setTextSize(2);
   tft.setTextColor(ST77XX_CYAN);
-    if (currentTemp > -100) {
-      tft.print(currentTemp, 1);
-      tft.print(" C");
-    } else {
-      tft.print("--C");
+
+  if (currentTemp > -100) {
+    tft.print(currentTemp, 1);
+    tft.print(" C");
+  } else {
+    tft.print("--C");
   }
 
-  // --- Price display ---
+  // Price
   tft.setCursor(10, 53);
   tft.setTextSize(3);
 
   if (price >= 0.0) {
-    // --- Color switch based on price ---
-    if (price < 5.0) {
-      tft.setTextColor(ST77XX_GREEN);
-    } else if (price < 15.0) {
-      tft.setTextColor(ST77XX_YELLOW);
-    } else {
-      tft.setTextColor(ST77XX_RED);
-    }
+    if (price < 5.0) tft.setTextColor(ST77XX_GREEN);
+    else if (price < 15.0) tft.setTextColor(ST77XX_YELLOW);
+    else tft.setTextColor(ST77XX_RED);
 
-    tft.print(price, 2);  // big number
+    tft.print(price, 2);
     tft.setTextSize(2);
     tft.setTextColor(ST77XX_WHITE);
-    tft.print("c/kWh");  // smaller unit
-
+    tft.print("c/kWh");
   } else {
     tft.setTextColor(ST77XX_RED);
     tft.println("No data");
   }
-
-  // --- Serial log ---
-  Serial.print("Device time: "); Serial.println(myTZ.dateTime());
-  Serial.print("Current price: "); Serial.println(price);
 }
+
+// ---------- AUDIO ----------
 
 void stopAudio() {
   i2s_zero_dma_buffer(I2S_NUM_0);
 }
+
+void beep(int freq, int duration) {
+  playTone(freq, duration);
+  stopAudio();
+}
+
+void playPriceSound(float price) {
+
+  if (price < 5.0) {
+    beep(600, 120);
+    delay(80);
+    beep(800, 120);
+  }
+
+  else if (price < 15.0) {
+    beep(1000, 100);
+    delay(120);
+    beep(1000, 100);
+  }
+
+  else {
+    beep(1200, 150);
+    delay(100);
+    beep(900, 150);
+    delay(100);
+    beep(600, 250);
+  }
+}
+
+// ---------- I2S ----------
 
 void setupI2S() {
   i2s_config_t config = {
@@ -218,7 +264,6 @@ void playTone(int freq, int durationMs) {
   const int totalSamples = sampleRate * durationMs / 1000;
 
   int16_t buffer[512];
-
   int bufferIndex = 0;
 
   for (int i = 0; i < totalSamples; i++) {
@@ -231,13 +276,11 @@ void playTone(int freq, int durationMs) {
     }
   }
 
-  // 🔥 flush remaining samples (THIS is what you're missing)
   if (bufferIndex > 0) {
     size_t bytesWritten;
     i2s_write(I2S_NUM_0, buffer, bufferIndex * sizeof(int16_t), &bytesWritten, portMAX_DELAY);
   }
 
-  // optional: tiny silence gap so it doesn’t smear into next sound
   int16_t silence[256] = {0};
   size_t bw;
   i2s_write(I2S_NUM_0, silence, sizeof(silence), &bw, portMAX_DELAY);
@@ -257,8 +300,8 @@ void setup() {
   connectWiFi();
 
   setupI2S();
-
   stopAudio();
+
   delay(100);
 
   playTone(1000, 200);
@@ -271,23 +314,19 @@ void setup() {
   waitForSync();
   myTZ.setLocation("Europe/Helsinki");
 
-  fetchPrices();           // get the latest prices from API
-  displayCurrentPrice();   // show them on the OLED right away
-
+  fetchPrices();
+  displayCurrentPrice();
 }
 
 // ---------- LOOP ----------
 
 void loop() {
-
   static unsigned long lastDisplayUpdate = 0;
-  static unsigned long lastFetch = 0;
 
-  if (millis() - lastDisplayUpdate > 60000) {
-
+//change to one minute when not testing
+  if (millis() - lastDisplayUpdate > 20000) {
     displayCurrentPrice();
     lastDisplayUpdate = millis();
-
   }
 
   if (myTZ.hour() == 14 && myTZ.minute() == 0) {
@@ -297,8 +336,8 @@ void loop() {
   static int lastTempHour = -1;
   int hour = myTZ.hour();
 
-    if (hour != lastTempHour) {
-      fetchTemperature();
-      lastTempHour = hour;
+  if (hour != lastTempHour) {
+    fetchTemperature();
+    lastTempHour = hour;
   }
 }

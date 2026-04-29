@@ -1,0 +1,20 @@
+Viikko 9
+Varmistin viime kerralla käytyjä asioita. Keräsimme ”ostoslistaan” laitteeseemme tarvittavia komponentteja, kuten näytön, ESP32 moduulin, kaiuttimen ja vahvistimen. Aloimme myös alustavasti suunnitella koteloa, josta tulee näillä näkyvin salaman muotoinen. Koodipuolella tutkin API:n toimivuutta, ja sain koodille hyvän perustan josta voi jatkaa ensi kerralla.
+
+Viikko 10
+Saimme API:n toimimaan, ja datan näkymään LCD-näytöllä. Päätimme tässä vaiheessa vaihtaa LCD-näytön OLED näyttöön, joka on terävämpi ja pystyy näyttämään värejä. Saimme OLEDin toimimaan alustavasti, ja ensi kerralla saamme integroitua siihen koodin. Työtä hidastaa tarve pitää ESP32:n boot-näppäintä pohjassa jokaisen koodimuutoksen jälkeen.
+
+Viikko 11
+Uusi näyttö toimii hyvin. Huomasimme, että sähkön hinta oli ilmoitettu laitteessa väärässä muodossa, ja käytin ison osan tunnista tämän virheen debugaukseen. Sain kuitenkin hin-nan näkymään oikein. Ensi keralla parannan käyttöliittymää ja lisäämme ehkä API:n, joka näyttää tämänhetkisen lämpötilan. Koteloa suunniteltiin ja hienostettiin, ja ensi kerralla meil-lä pitäisi olla ensimmäinen 3D-printattu prototyyppi kasassa. Suunittelimme mm. telinettä, jonka avulla laitteen voi seinäripustuksen lisäksi asettaa pöydälle, oudosta muodosta huo-limata.
+
+Viikko 13
+Saimme kotelon ensimmäisen prototyypin valmiiksi, joka auttoi hahmottamaan koko pro-jektia. Lisäsimme näytölle nykyisen lämpötilan käyttäen Open Meteon API:ta, ja paran-simme käyttöliittymää, kuten esimerkiksi vaihtamalla näytön vaakatilaan, ja lisäämällä eri hinnoille värikoodit. Testasimme myös erilaisia virtakatkaisimia.
+
+Viikko 14
+kote-lon prototyypin tulostus aloitettiin.
+
+Viikko 15
+IoT tunnilla työstimme käyttöliittymää ja mietimme äänien lisäämistä laitteeseen, sekä on-off painiketta. Kotelon toinen prototyyppi oli valmis, vaikka tulostus olikin hieman epätäy-dellinen ja väri väärä. Varmistimme, että näyttö ja osat mahtuivat kotelon sisään. Perustin Github-sivun projektille.
+
+Viikko 16
+IoT-projektissa loin laitteeseen käynnistysäänen vahvistimen ja kaiuttimen avulla. Suurin osa tuntia meni tämän ominaisuuden käyttöönottoon. Lopputunnista saimme sen toimi-maan, ja ideana on lisätä lisää äänimerkkejä, kuten jos sähkön hinta nousee tiettyjen rajo-jen yli. Saimme kotelon uuden näyttöupotuksen tulostumaan.
