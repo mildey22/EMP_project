@@ -8,7 +8,7 @@
 ## Description
 
 The EMP, or the Energy Monitoring Panel is an experimental IoT student project that displays real-time electricity prices and alerts the user when prices rise above configurable thresholds. 
-The device uses visual indicators and sound notifications, and may optionally integrate with a Telegram bot for remote alerts.
+To do this, the device uses visual indicators and sound notifications.
 
 The hardware will be housed in a 3D-printed lightning bolt-shaped casing with an integrated display.
 
